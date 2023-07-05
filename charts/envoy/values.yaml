@@ -1,0 +1,30 @@
+# Default values for envoy.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+envoy:
+  replicaCount: 1
+
+  image:
+    repository: nginx
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+
+  ingress:
+    host: localhost
+
+app:
+  replicaCount: 1
+
+  image:
+    repository: nginx
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+
+otel:
+  host: my-opentelemetry-host.de
+  port: 4317
+
+imagePullSecrets: []

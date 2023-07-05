@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "envoy.deploymentName" . }}
+spec:
+  replicas: {{ .Values.envoy.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "envoy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "envoy.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+          image: "{{ .Values.envoy.image.repository }}:{{ .Values.envoy.image.tag }}"
+          imagePullPolicy: {{ .Values.envoy.image.pullPolicy }}
+          ports:
+            - name: {{ include "envoy.portName" . }}
+              containerPort: {{ include "envoy.deploymentPort" . }}
+              protocol: TCP
+          volumeMounts:
+            - name: &envoyYamlVol config
+              mountPath: "/etc/envoy"
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /alivez/envoy
+              port: {{ include "envoy.portName" . }}
+          readinessProbe:
+            httpGet:
+              path: /readyz/envoy
+              port: {{ include "envoy.portName" . }}
+      volumes:
+        - name: *envoyYamlVol
+          configMap:
+            name: {{ include "envoy.configMapName" . }}
+            items:
+            - key: "envoy.yaml"
+              path: "envoy.yaml"

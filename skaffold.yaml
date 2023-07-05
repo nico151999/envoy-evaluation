@@ -1,0 +1,52 @@
+apiVersion: skaffold/v4beta2
+kind: Config
+metadata:
+  name: envoy-evaluation
+build:
+  local:
+    concurrency: 2
+    push: true
+  tagPolicy:
+    inputDigest: {}
+  artifacts:
+    - image: &appImage ghcr.io/nico151999/envoy-gateway-evaluation-app
+      context: ./
+      docker:
+        dockerfile: ./cmd/Dockerfile
+    - image: &envoyImage ghcr.io/nico151999/envoy-gateway-evaluation-envoy
+      context: ./
+      docker:
+        dockerfile: ./envoy/Dockerfile
+deploy:
+  helm:
+    releases:
+      - name: envoy-evaluation
+        chartPath: charts/envoy
+        namespace: envoy
+        createNamespace: false
+        setValueTemplates:
+          imagePullSecrets:
+            - name: "{{ .ENVOY_EVALUATION_IMAGE_PULL_SECRET }}"
+          envoy:
+            ingress:
+              host: "{{ .ENVOY_EVALUATION_INGRESS_HOST }}"
+            image:
+              repository: *envoyImage
+              tag: *envoyImage
+          app:
+            image:
+              repository: *appImage
+              tag: *appImage
+profiles:
+  - name: NO_IMAGE_PULL_SECRETS
+    activation:
+      - env: ENVOY_EVALUATION_IMAGE_PULL_SECRET=
+    patches:
+      - op: remove
+        path: /deploy/helm/releases/0/setValueTemplates/imagePullSecrets[0].name
+  - name: NO_INGRESS_HOST
+    activation:
+      - env: ENVOY_EVALUATION_INGRESS_HOST=
+    patches:
+      - op: remove
+        path: /deploy/helm/releases/0/setValueTemplates/envoy.ingress.host

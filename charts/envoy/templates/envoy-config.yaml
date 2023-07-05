@@ -1,0 +1,126 @@
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "envoy.configMapName" . }}
+data:
+  envoy.yaml: |
+    admin:
+      address:
+        socket_address: { address: 127.0.0.1, port_value: 9901 }
+    static_resources:
+      listeners:
+      - name: listener_0
+        address:
+          socket_address:
+            address: 0.0.0.0
+            port_value: {{ include "envoy.deploymentPort" . }}
+        filter_chains:
+        - filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              tracing:
+                provider:
+                  name: envoy.tracers.opentelemetry
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.config.trace.v3.OpenTelemetryConfig
+                    grpc_service:
+                      envoy_grpc:
+                        cluster_name: &otelClusterName opentelemetry_collector
+                      timeout: 0.25s
+                    service_name: {{ include "envoy.deploymentName" . }}
+              stat_prefix: ingress_http
+              codec_type: AUTO
+              access_log:
+              - name: envoy.access_loggers.open_telemetry
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.access_loggers.open_telemetry.v3.OpenTelemetryAccessLogConfig
+                  common_config:
+                    log_name: {{ include "envoy.deploymentName" . }}
+                    transport_api_version: V3
+                    grpc_service:
+                      envoy_grpc:
+                        cluster_name: *otelClusterName
+                      timeout: 0.25s
+              route_config:
+                name: my_route
+                virtual_hosts:
+                - name: my_service
+                  domains: ["*"]
+                  routes:
+                  - match: { prefix: "/metrics" }
+                    route:
+                      cluster: &adminClusterName envoy_admin
+                      prefix_rewrite: "/stats/prometheus"
+                  - match: { prefix: "/" }
+                    route:
+                      cluster: &serviceClusterName some_service
+              http_filters:
+              - name: envoy.filters.http.wasm
+                typed_config:
+                  "@type": type.googleapis.com/udpa.type.v1.TypedStruct
+                  type_url: type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
+                  value:
+                    config:
+                      name: "my_plugin"
+                      root_id: "my_root_id"
+                      configuration:
+                        "@type": "type.googleapis.com/google.protobuf.StringValue"
+                        value: |
+                          {}
+                      vm_config:
+                        runtime: "envoy.wasm.runtime.v8"
+                        vm_id: "my_vm_id"
+                        code:
+                          local:
+                            filename: "/bin/envoy/wasm/filter.wasm"
+                        configuration: { }
+              # TODO: add external authz
+              - name: envoy.filters.http.router
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+      clusters:
+      - name: *otelClusterName
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        typed_extension_protocol_options:
+          envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+            "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+            explicit_http_config:
+              http2_protocol_options: {}
+        load_assignment:
+          cluster_name: *otelClusterName
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: "{{ .Values.otel.host }}"
+                    port_value: {{ .Values.otel.port }}
+      - name: *adminClusterName
+        connect_timeout: 0.25s
+        type: STATIC
+        load_assignment:
+          cluster_name: *adminClusterName
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: 127.0.0.1
+                    port_value: 9901
+      - name: *serviceClusterName
+        connect_timeout: 0.25s
+        type: STRICT_DNS
+        dns_lookup_family: V4_ONLY
+        lb_policy: LEAST_REQUEST
+        load_assignment:
+          cluster_name: *serviceClusterName
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{ include "app.serviceName" . }}
+                    port_value: {{ include "app.servicePort" . }}

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "app.serviceName" . }}
+spec:
+  clusterIP: None
+  ports:
+    - name: {{ include "app.portName" . }}
+      port: {{ include "app.servicePort" . }}
+      targetPort: {{ include "app.portName" . }}
+      protocol: TCP
+  selector:
+    {{- include "app.selectorLabels" . | nindent 4 }}
